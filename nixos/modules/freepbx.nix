@@ -176,7 +176,17 @@ in
       phpfpm.pools.freepbx = {
         inherit (cfg) user group;
         phpPackage = pkgs.php82.withExtensions ({ enabled, all }: enabled ++ (with all; [
-          pdo_mysql curl gd mbstring openssl xml zip bcmath intl gettext sockets
+          pdo_mysql
+          curl
+          gd
+          mbstring
+          openssl
+          xml
+          zip
+          bcmath
+          intl
+          gettext
+          sockets
         ]));
         settings = {
           "listen.owner" = config.services.httpd.user;
