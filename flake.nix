@@ -44,7 +44,13 @@
       }
     ) // {
       nixosModules = {
-        freepbx = import ./nixos/modules/freepbx.nix;
+        # The module applies the flake's overlay so pkgs.freepbx resolves,
+        # and sets the package default. Users can still override it.
+        freepbx = { pkgs, ... }: {
+          imports = [ ./nixos/modules/freepbx.nix ];
+          nixpkgs.overlays = [ self.overlays.default ];
+          services.freepbx.package = pkgs.lib.mkDefault pkgs.freepbx;
+        };
         default = self.nixosModules.freepbx;
       };
 

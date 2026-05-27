@@ -1,14 +1,18 @@
 # VM test: MariaDB is provisioned with the correct database and user.
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.nixosTest {
+let
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+in
+pkgs.testers.nixosTest {
   name = "freepbx-database";
 
-  nodes.machine = { config, pkgs, ... }: {
+  nodes.machine = { ... }: {
     imports = [ ../nixos/modules/freepbx.nix ];
 
     services.freepbx = {
-      enable = true;
+      enable  = true;
+      package = freepbxPackage;
       database = {
         name         = "asterisk";
         user         = "asterisk";
@@ -23,27 +27,15 @@ pkgs.nixosTest {
     machine.start()
     machine.wait_for_unit("mysql.service", timeout=120)
 
-    # Database exists
-    machine.succeed(
-      "mysql -u root -e 'SHOW DATABASES;' | grep -q 'asterisk'"
-    )
-
-    # User has been created
+    machine.succeed("mysql -u root -e 'SHOW DATABASES;' | grep -q 'asterisk'")
     machine.succeed(
       "mysql -u root -e \"SELECT User FROM mysql.user;\" | grep -q 'asterisk'"
     )
+    machine.succeed("mysql -u asterisk -phunter2 asterisk -e 'SELECT 1;'")
 
-    # User can connect with the password from the file
-    machine.succeed(
-      "mysql -u asterisk -phunter2 asterisk -e 'SELECT 1;'"
-    )
-
-    # freepbx.conf was written and contains the DB config
     machine.wait_for_unit("freepbx-init.service", timeout=180)
     machine.succeed("grep -q 'asterisk' /etc/freepbx.conf")
     machine.succeed("grep -q 'AMPDBPASS' /etc/freepbx.conf")
-
-    # freepbx.conf has restrictive permissions
     machine.succeed("stat -c '%a' /etc/freepbx.conf | grep -q '640'")
   '';
 }

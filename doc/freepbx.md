@@ -1,166 +1,174 @@
 # FreePBX on NixOS
 
-## Overview
+> **Independent project.** nixpbx is not affiliated with FreePBX or Sangoma
+> Technologies in any way. We fetch FreePBX source code from the official
+> GitHub repositories and package it for NixOS. If something is wrong with
+> FreePBX itself, report it upstream. If something is wrong with this
+> packaging, open an issue here.
 
-FreePBX is an open-source, browser-based GUI that manages Asterisk, the most
-widely deployed open-source PBX engine. Together they form a complete telephony
-platform: Asterisk handles the actual call processing, codec negotiation, and
-protocol state machines (SIP, PJSIP, IAX2, DAHDI), while FreePBX exposes all of
-that through a web admin panel with a modular extension system — extensions,
-trunks, IVRs, voicemail, call queues, ring groups, time conditions, and more.
+## What is FreePBX?
 
-Running FreePBX on NixOS gives you declarative, reproducible telephony
-infrastructure. The entire system — web server, PHP runtime, Asterisk, MariaDB,
-firewall rules, and FreePBX itself — is specified in one `configuration.nix`.
-Rolling back a bad configuration is a single `nixos-rebuild switch --rollback`.
-There are no hand-crafted `/etc` files that drift from the declared state.
+FreePBX is an open-source web interface for managing Asterisk, the PBX engine
+that handles actual phone calls. Think of Asterisk as the engine and FreePBX
+as the dashboard — you configure extensions, voicemail, call menus, ring
+groups, and trunks through a browser instead of editing config files by hand.
 
-FreePBX 17 is the first release to target PHP 8.2 and Debian-style deployments.
-This packaging adapts that release to the Nix store model: read-only store paths
-hold the immutable code, while `/var/lib/freepbx` holds all writable runtime
-state. The `freepbx-init` systemd service bridges the two on first boot.
+FreePBX 17 is the current release. It requires PHP 8.2 and ships a rewritten
+dialplan that drops the long-deprecated `Macro` application in favour of
+`GoSub`. If you have been running an older FreePBX installation, the upgrade
+path involves database migrations that run automatically on first boot.
 
----
+## Why run it on NixOS?
 
-## Quick Start
+On a traditional Linux system, FreePBX installs itself by scattering files
+across `/var/www/html`, `/etc/asterisk`, and `/etc/freepbx.conf`, then
+expects you to keep those in sync with future upgrades. It works, but rolling
+back a broken upgrade means restoring from a backup.
 
-### Minimal Configuration
+On NixOS, your entire FreePBX installation — web server, PHP configuration,
+Asterisk, MariaDB, firewall rules — is described in a single file. Switching
+to a new version is `nixos-rebuild switch`. Switching back is
+`nixos-rebuild switch --rollback`. Nothing is left in an unknown state.
 
-Add to your `configuration.nix`:
+## Quick start
 
-```nix
-{ config, pkgs, ... }:
-{
-  imports = [
-    (builtins.fetchTarball "https://github.com/yourorg/nixpbx/archive/main.tar.gz"
-      + "/nixos/modules/freepbx.nix")
-  ];
+### Minimal
 
-  services.freepbx.enable = true;
-  services.freepbx.database.passwordFile = "/run/secrets/freepbx-db-pass";
-}
-```
-
-Or, using the flake as an input:
+This is the smallest configuration that produces a working FreePBX system:
 
 ```nix
-# flake.nix
 {
-  inputs.nixpbx.url = "github:yourorg/nixpbx";
+  imports = [ inputs.nixpbx.nixosModules.freepbx ];
 
-  outputs = { nixpkgs, nixpbx, ... }: {
-    nixosConfigurations.myserver = nixpkgs.lib.nixosSystem {
-      modules = [
-        nixpbx.nixosModules.freepbx
-        {
-          services.freepbx.enable = true;
-          services.freepbx.database.passwordFile = "/run/secrets/freepbx-db-pass";
-        }
-      ];
-    };
+  services.freepbx = {
+    enable = true;
+    database.passwordFile = "/run/secrets/freepbx-db-pass";
   };
 }
 ```
 
-Then rebuild:
+After `nixos-rebuild switch`, wait for the `freepbx-init` service to finish
+(it copies web files and initialises the database), then open
+`http://<ip>/admin` in a browser.
 
-```bash
-sudo nixos-rebuild switch --flake .#myserver
-```
-
-### Production Configuration
+### Production
 
 ```nix
 services.freepbx = {
   enable = true;
 
-  # Pin a specific package revision for stability
-  package = pkgs.freepbx;
+  # Store FreePBX state on a dedicated volume
+  dataDir = "/var/lib/freepbx";
 
   database = {
     host         = "localhost";
     name         = "asterisk";
     user         = "asterisk";
-    passwordFile = "/run/secrets/freepbx-db-pass";
+    passwordFile = config.age.secrets.freepbx-db.path;
   };
 
-  adminPasswordFile = "/run/secrets/freepbx-admin-pass";
+  adminPasswordFile = config.age.secrets.freepbx-admin.path;
 
-  # Open SIP (5060/5061) and RTP (10000–20000) in the firewall
-  openFirewall   = true;
-  sipPort        = 5060;
-  tlsSipPort     = 5061;
-  rtpPortRange   = { from = 10000; to = 20000; };
+  # Open SIP and RTP ports in the firewall
+  openFirewall = true;
+  sipPort      = 5060;
+  tlsSipPort   = 5061;
+  rtpPortRange = { from = 10000; to = 20000; };
 
+  # Extra PHP config appended to /etc/freepbx.conf
   extraConfig = ''
     $amp_conf['AMPDISABLELOG'] = 'false';
-    $amp_conf['AMPASTERISKCONFDIR'] = '/etc/asterisk';
   '';
 };
-
-# Pair with agenix or sops-nix for secret management
-age.secrets.freepbx-db-pass.file  = ./secrets/freepbx-db-pass.age;
-age.secrets.freepbx-admin-pass.file = ./secrets/freepbx-admin-pass.age;
 ```
 
----
+Secrets are managed with [agenix](https://github.com/ryantm/agenix) in this
+example, but any file-based secrets manager works — sops-nix, systemd
+credentials, or even a plain file only root can read.
 
-## Architecture
+### Running in a microVM
 
-### Nix Store vs. Runtime State
+If you want to isolate FreePBX from your host system without the overhead of a
+full virtual machine, see the [microvm example](../examples/microvm/). It uses
+[microvm.nix](https://github.com/astro/microvm.nix) with cloud-hypervisor for
+fast boot times and a shared Nix store with the host.
 
-The Nix store (`/nix/store/…`) is read-only. FreePBX expects to write to its
-web root (for module installs), to `/etc/freepbx.conf`, and to various spool
-and log directories. This packaging resolves the conflict as follows:
+## How it works
 
-| Path | What lives there | Managed by |
-|---|---|---|
-| `/nix/store/…/share/freepbx/` | Immutable PHP source, AGI scripts | Nix derivation |
-| `/var/lib/freepbx/www/` | Writable copy of web root | `freepbx-init` service |
-| `/var/lib/freepbx/sessions/` | PHP session files | PHP-FPM |
-| `/etc/freepbx.conf` | Runtime config (DB creds, paths) | `freepbx-init` service |
-| `/etc/asterisk/` | Asterisk dialplan + config | Asterisk + FreePBX |
-| `/var/spool/asterisk/` | Voicemail, recordings, call files | Asterisk |
-| `/var/log/asterisk/` | Call logs, FreePBX logs | Asterisk + PHP-FPM |
+### The Nix store problem
 
-### Service Layout
+The Nix store is read-only. FreePBX expects to write PHP files, session data,
+and configuration into its web root. This packaging resolves the conflict like
+this:
+
+1. The FreePBX PHP source lives in `/nix/store/…/share/freepbx/` (read-only).
+2. On first boot, the `freepbx-init` systemd service copies the web root into
+   `${dataDir}/www` (writable, persisted across reboots).
+3. `/etc/freepbx.conf` is generated by `freepbx-init` with the database
+   password read from the file you specified in `database.passwordFile`.
+
+If you update FreePBX (by updating the flake input and rebuilding), the new
+store path differs from the old one. `freepbx-init` detects this on the next
+boot, removes the `.deployed` marker, and re-copies the updated files.
+
+### Service layout
 
 ```
-multi-user.target
-  └── freepbx-init.service     (oneshot, runs on boot; requires mysql.service)
-        └── httpd.service       (Apache + PHP-FPM, serves /var/lib/freepbx/www)
-        └── asterisk.service    (PBX engine, reads /etc/asterisk/)
-  └── freepbx-cron.timer       (every 5 min → freepbx-cron.service)
+freepbx-init.service  (oneshot, runs on boot)
+│  copies store → dataDir/www
+│  writes /etc/freepbx.conf
+│  runs fwconsole chown + reload
+│
+├── httpd.service          (Apache + PHP-FPM, serves dataDir/www)
+├── asterisk.service       (Asterisk PBX engine)
+└── freepbx-cron.timer     (every 5 min → fwconsole job)
 ```
 
-`freepbx-init` runs as root to copy files and write `/etc/freepbx.conf`, then
-drops privileges. All other services run as the `asterisk` user.
+All services run as the `asterisk` user. `freepbx-init` runs as root only
+long enough to copy files and write `/etc/freepbx.conf`, then exits.
 
----
+### Where things live
+
+| Path | Contents |
+|---|---|
+| `/nix/store/…/share/freepbx/` | Immutable PHP source (from build) |
+| `${dataDir}/www/` | Writable web root (deployed at runtime) |
+| `${dataDir}/sessions/` | PHP session files |
+| `/etc/freepbx.conf` | Runtime config: DB creds, paths |
+| `/etc/asterisk/` | Asterisk dialplan and config |
+| `/var/spool/asterisk/` | Voicemail, recordings, call files |
+| `/var/log/asterisk/` | Call logs, FreePBX logs |
 
 ## Upgrading
 
-1. Update the flake input or bump the package version:
-   ```bash
-   nix flake update nixpbx
-   ```
-2. Rebuild:
-   ```bash
-   sudo nixos-rebuild switch --flake .#myserver
-   ```
-3. `freepbx-init` detects the new store path and re-deploys the web root.
-   Database schema migrations run automatically via `fwconsole reload`.
+```bash
+# Update the flake input to get the latest nixpbx packaging
+nix flake update nixpbx
 
-To roll back:
+# Or update everything at once
+nix flake update
+
+# Rebuild and switch
+sudo nixos-rebuild switch --flake .#myserver
+```
+
+FreePBX database migrations run automatically via `fwconsole reload` inside
+`freepbx-init`. If a migration fails, check the journal:
+
+```bash
+journalctl -u freepbx-init -e
+```
+
+To roll back to the previous generation:
+
 ```bash
 sudo nixos-rebuild switch --rollback
 ```
 
----
+## Adding extra modules
 
-## Adding Modules
-
-Pass extra module derivations via `extraModules` in `pkgs.freepbx`:
+The 29 open-source FreePBX modules are bundled by default. To add a third-party
+or custom module, override the package:
 
 ```nix
 services.freepbx.package = pkgs.freepbx.override {
@@ -175,55 +183,50 @@ services.freepbx.package = pkgs.freepbx.override {
 };
 ```
 
-Each entry in `extraModules` is copied into
-`/var/lib/freepbx/www/admin/modules/<basename>/`.
-
----
+Each entry is copied into `${dataDir}/www/admin/modules/<basename>/` on the
+next `freepbx-init` run.
 
 ## Troubleshooting
 
-### fwconsole Commands
+### Common fwconsole commands
 
 ```bash
 # Reload Asterisk dialplan and FreePBX config
 fwconsole reload
 
-# Fix file ownership after manual edits
+# Fix file ownership after anything touches the web root
 fwconsole chown
 
-# List installed modules and their status
+# List all installed modules and their status
 fwconsole moduleadmin list
 
-# Run the cron job manually
+# Run the background job queue manually
 fwconsole job --quiet
 
-# Check FreePBX framework version
+# Print the FreePBX version
 fwconsole --version
 ```
 
-### Logs
+### Reading logs
 
 ```bash
-# All FreePBX / Asterisk systemd output
-journalctl -u freepbx-init -u asterisk -u httpd -f
+# Follow all FreePBX-related systemd output
+journalctl -u freepbx-init -u asterisk -u httpd -u phpfpm-freepbx -f
 
-# PHP-FPM errors
-journalctl -u phpfpm-freepbx -f
-
-# Asterisk full log
+# Asterisk full call log
 tail -f /var/log/asterisk/full
 
-# FreePBX module log
+# FreePBX module activity
 tail -f /var/log/asterisk/freepbx.log
 ```
 
-### Asterisk CLI
+### Connecting to Asterisk
 
 ```bash
 asterisk -rvvvv
 ```
 
-Useful CLI commands once connected:
+Once connected:
 
 ```
 core show version
@@ -232,47 +235,37 @@ dialplan show
 core reload
 ```
 
----
+## Security notes
 
-## Security Considerations
+**Keep secrets out of your Nix config.** The `database.passwordFile` and
+`adminPasswordFile` options exist precisely so that passwords never end up in
+the Nix store (which is world-readable). Use agenix, sops-nix, or systemd
+credentials. `/etc/freepbx.conf` is written with mode `640` and owned
+`root:asterisk` so the web user cannot read the database password directly.
 
-- **Never inline secrets.** Use `database.passwordFile` and `adminPasswordFile`
-  pointing to paths managed by agenix, sops-nix, or another secrets manager.
-  `/etc/freepbx.conf` is written at runtime with `chmod 640` and owned
-  `root:asterisk`.
+**Firewall.** `openFirewall = true` opens SIP (UDP 5060), SIP TLS (TCP 5061),
+HTTP (TCP 80), HTTPS (TCP 443), and the RTP port range you configured. On a
+public server you should put a reverse proxy in front of the web admin and not
+expose port 80 directly. Consider integrating [fail2ban](https://www.fail2ban.org)
+against `/var/log/asterisk/full` to block SIP authentication brute-force.
 
-- **SIP hardening.** Enable `openFirewall` only on the WAN interface if possible.
-  Use `networking.firewall.interfaces` for per-interface rules. Consider deploying
-  fail2ban watching `/var/log/asterisk/full` for SIP auth failures.
+**Commercial modules.** Sangoma's commercial modules (Zulu, SIPStation,
+CXPanel) are encrypted with IonCube and cannot be packaged in Nix. They are
+not included and cannot be added via `extraModules`.
 
-- **TLS SIP.** Configure PJSIP transport in Asterisk with a Let's Encrypt
-  certificate. Set `tlsSipPort` and ensure `openFirewall = true` opens port 5061.
+## Known limitations
 
-- **Web admin access.** Do not expose port 80/443 to the public internet unless
-  you have a reverse proxy with authentication in front of the FreePBX admin.
-  The admin panel has no rate limiting by default.
+- Modules installed through the FreePBX web UI ("Module Admin") write to
+  `${dataDir}/www/admin/modules/` and survive reboots, but they are not
+  managed by Nix. A `nixos-rebuild switch` will not remove them. If you
+  want modules tracked declaratively, use `extraModules` instead.
 
-- **Asterisk AMI.** The Asterisk Manager Interface listens on port 5038 by default.
-  Restrict it to `localhost` in `manager.conf` unless you have a specific need.
+- `pkgs.asterisk` in nixpkgs may not have every optional compile-time module
+  that FreePBX expects. If the FreePBX admin panel reports missing Asterisk
+  modules, override the package:
 
----
-
-## Known Limitations
-
-- **Not an official upstream packaging.** Sangoma (the FreePBX maintainer) does
-  not provide NixOS packages. This flake tracks the upstream GitHub repos and may
-  lag behind urgent security releases.
-
-- **Commercial modules are excluded.** Sangoma's commercial modules (Zulu UC,
-  SIPStation, CXPanel, etc.) use IonCube loader-encrypted PHP and cannot be
-  built from source. They are not packaged here and cannot be.
-
-- **Mutable web root.** FreePBX's module manager writes PHP files at runtime.
-  Modules installed via the web UI survive reboots (they're in `/var/lib/freepbx/www`)
-  but are not managed by Nix and will not appear in `nix flake check`. Treat them
-  as ephemeral state or track them via the `extraModules` mechanism.
-
-- **Asterisk module set.** `pkgs.asterisk` in nixpkgs may not include every
-  optional Asterisk module FreePBX expects. Use `pkgs.asterisk.override` or
-  `pkgs.asterisk.overrideAttrs` to enable additional compile-time options if you
-  encounter missing module warnings in the FreePBX admin panel.
+  ```nix
+  services.freepbx.asteriskPackage = pkgs.asterisk.overrideAttrs (old: {
+    configureFlags = old.configureFlags ++ [ "--with-pjproject-bundled" ];
+  });
+  ```

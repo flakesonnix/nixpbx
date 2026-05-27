@@ -2,31 +2,35 @@
 # and absent when openFirewall = false (the default).
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.nixosTest {
+let
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  dbPass = pkgs.writeText "db-pass" "test";
+in
+pkgs.testers.nixosTest {
   name = "freepbx-firewall";
 
   nodes = {
-    # Server with firewall open
-    server = { config, pkgs, ... }: {
+    server = { ... }: {
       imports = [ ../nixos/modules/freepbx.nix ];
       services.freepbx = {
         enable       = true;
+        package      = freepbxPackage;
         openFirewall = true;
         sipPort      = 5060;
         tlsSipPort   = 5061;
         rtpPortRange = { from = 10000; to = 10010; };
-        database.passwordFile = pkgs.writeText "db-pass" "test";
+        database.passwordFile = dbPass;
       };
       virtualisation.memorySize = 1024;
     };
 
-    # Server with firewall closed (default)
-    serverClosed = { config, pkgs, ... }: {
+    serverClosed = { ... }: {
       imports = [ ../nixos/modules/freepbx.nix ];
       services.freepbx = {
         enable       = true;
+        package      = freepbxPackage;
         openFirewall = false;
-        database.passwordFile = pkgs.writeText "db-pass" "test";
+        database.passwordFile = dbPass;
       };
       virtualisation.memorySize = 1024;
     };
@@ -38,20 +42,13 @@ pkgs.nixosTest {
     server.wait_for_unit("multi-user.target")
     serverClosed.wait_for_unit("multi-user.target")
 
-    # openFirewall = true: SIP port 5060 should be open in iptables
     server.succeed("iptables -L INPUT -n | grep -q '5060'")
     server.succeed("iptables -L INPUT -n | grep -q '5061'")
-
-    # RTP range should appear
     server.succeed(
       "iptables -L INPUT -n | grep -qE '10000.*10010|udp dpt:10000:10010'"
     )
-
-    # HTTP/HTTPS ports open
     server.succeed("iptables -L INPUT -n | grep -q 'dpt:80'")
     server.succeed("iptables -L INPUT -n | grep -q 'dpt:443'")
-
-    # openFirewall = false: SIP port should NOT be open
     serverClosed.fail("iptables -L INPUT -n | grep -q 'dpt:5060'")
   '';
 }

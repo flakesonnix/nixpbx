@@ -2,29 +2,14 @@
 
 let
   cfg = config.services.freepbx;
-  freepbxConf = pkgs.writeText "freepbx.conf" ''
-    <?php
-    $amp_conf['AMPDBHOST']     = '${cfg.database.host}';
-    $amp_conf['AMPDBNAME']     = '${cfg.database.name}';
-    $amp_conf['AMPDBUSER']     = '${cfg.database.user}';
-    $amp_conf['AMPWEBROOT']    = '${cfg.webRoot}';
-    $amp_conf['AMPSYSETC']     = '/etc/asterisk';
-    $amp_conf['ASTETCDIR']     = '/etc/asterisk';
-    $amp_conf['ASTSPOOLDIR']   = '${cfg.spoolDir}';
-    $amp_conf['ASTLOGDIR']     = '${cfg.logDir}';
-    $amp_conf['AMPBIN']        = '${cfg.package}/share/freepbx/bin';
-    $amp_conf['AGIBIN']        = '${cfg.package}/share/freepbx/agi-bin';
-    $amp_conf['AMPUSER']       = '${cfg.user}';
-    $amp_conf['AMPGROUP']      = '${cfg.group}';
-    ${cfg.extraConfig}
-  '';
 in
 {
   options.services.freepbx = {
     enable = lib.mkEnableOption "FreePBX, the open-source Asterisk PBX web GUI";
 
-    package = lib.mkPackageOption pkgs "freepbx" {
-      default = [ "freepbx" ];
+    package = lib.mkOption {
+      type        = lib.types.package;
+      description = "FreePBX package to use. Must be set when using this module outside of the nixpbx flake.";
     };
 
     asteriskPackage = lib.mkPackageOption pkgs "asterisk" {
@@ -43,9 +28,20 @@ in
       description = "System group for the FreePBX service user.";
     };
 
+    dataDir = lib.mkOption {
+      type    = lib.types.str;
+      default = "/var/lib/freepbx";
+      description = ''
+        Root directory for all writable FreePBX runtime state. Subdirectories
+        (www/, sessions/, cache/) are created automatically. Changing this
+        also shifts the defaults for webRoot and related paths.
+      '';
+    };
+
     webRoot = lib.mkOption {
       type    = lib.types.str;
-      default = "/var/lib/freepbx/www";
+      default = "${cfg.dataDir}/www";
+      defaultText = lib.literalExpression ''"''${config.services.freepbx.dataDir}/www"'';
       description = "Writable document root where FreePBX web files are deployed at runtime.";
     };
 
@@ -188,7 +184,7 @@ in
         "pm.start_servers"             = 5;
         "pm.min_spare_servers"         = 5;
         "pm.max_spare_servers"         = 35;
-        "php_value[session.save_path]" = "/var/lib/freepbx/sessions";
+        "php_value[session.save_path]" = "${cfg.dataDir}/sessions";
         "php_admin_value[error_log]"   = "${cfg.logDir}/php-fpm.log";
         "php_admin_flag[log_errors]"   = true;
         "env[FREEPBX_CONF]"            = "/etc/freepbx.conf";
@@ -256,15 +252,30 @@ in
           touch ${cfg.webRoot}/.deployed
         fi
 
-        # Write /etc/freepbx.conf, injecting the DB password from file
+        # Write /etc/freepbx.conf. DB password is read from file at runtime
+        # so it never appears in the Nix store or the systemd unit.
         DB_PASS=""
         ${lib.optionalString (cfg.database.passwordFile != null) ''
-          DB_PASS=$(cat ${cfg.database.passwordFile})
+          DB_PASS=$(cat ${lib.escapeShellArg cfg.database.passwordFile})
         ''}
         cat > /etc/freepbx.conf <<PHPEOF
-        ${lib.fileContents freepbxConf}
-        \$amp_conf['AMPDBPASS'] = '$DB_PASS';
-        PHPEOF
+<?php
+\$amp_conf['AMPDBHOST']  = '${cfg.database.host}';
+\$amp_conf['AMPDBNAME']  = '${cfg.database.name}';
+\$amp_conf['AMPDBUSER']  = '${cfg.database.user}';
+\$amp_conf['AMPDBPASS']  = '$DB_PASS';
+\$amp_conf['AMPWEBROOT'] = '${cfg.webRoot}';
+\$amp_conf['AMPSYSETC']  = '/etc/asterisk';
+\$amp_conf['ASTETCDIR']  = '/etc/asterisk';
+\$amp_conf['ASTSPOOLDIR']= '${cfg.spoolDir}';
+\$amp_conf['ASTLOGDIR']  = '${cfg.logDir}';
+\$amp_conf['AMPBIN']     = '${cfg.package}/share/freepbx/bin';
+\$amp_conf['AGIBIN']     = '${cfg.package}/share/freepbx/agi-bin';
+\$amp_conf['FWCONSOLE']  = '${lib.getExe cfg.package}';
+\$amp_conf['AMPUSER']    = '${cfg.user}';
+\$amp_conf['AMPGROUP']   = '${cfg.group}';
+${cfg.extraConfig}
+PHPEOF
         chmod 640 /etc/freepbx.conf
         chown root:${cfg.group} /etc/freepbx.conf
 
@@ -274,13 +285,13 @@ in
         install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.logDir}
 
         # Run FreePBX bootstrap
-        ${cfg.package}/bin/fwconsole chown --quiet || true
-        ${cfg.package}/bin/fwconsole reload --quiet || true
+        ${lib.getExe cfg.package} chown --quiet || true
+        ${lib.getExe cfg.package} reload --quiet || true
 
         # Set admin password if provided
         ${lib.optionalString (cfg.adminPasswordFile != null) ''
           ADMIN_PASS=$(cat ${cfg.adminPasswordFile})
-          ${cfg.package}/bin/fwconsole userman --reset-admin-password "$ADMIN_PASS" || true
+          ${lib.getExe cfg.package} userman --reset-admin-password "$ADMIN_PASS" || true
         ''}
       '';
     };
@@ -294,7 +305,7 @@ in
         Type = "oneshot";
         User = cfg.user;
       };
-      script = "${cfg.package}/bin/fwconsole job --quiet";
+      script = "${lib.getExe cfg.package} job --quiet";
     };
 
     systemd.timers.freepbx-cron = {
@@ -316,9 +327,9 @@ in
         Group           = cfg.group;
         PIDFile         = "/run/asterisk/asterisk.pid";
         RuntimeDirectory = "asterisk";
-        ExecStart       = "${cfg.asteriskPackage}/bin/asterisk -f -U ${cfg.user} -G ${cfg.group}";
-        ExecReload      = "${cfg.asteriskPackage}/bin/asterisk -rx 'core reload'";
-        ExecStop        = "${cfg.asteriskPackage}/bin/asterisk -rx 'core stop now'";
+        ExecStart       = "${lib.getExe cfg.asteriskPackage} -f -U ${cfg.user} -G ${cfg.group}";
+        ExecReload      = "${lib.getExe cfg.asteriskPackage} -rx 'core reload'";
+        ExecStop        = "${lib.getExe cfg.asteriskPackage} -rx 'core stop now'";
         Restart         = "on-failure";
       };
     };
