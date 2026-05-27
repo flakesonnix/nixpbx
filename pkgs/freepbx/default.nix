@@ -7,7 +7,7 @@
 , ffmpeg-full
 , lame
 , flac
-, extraModules ? []
+, extraModules ? [ ]
 }:
 
 # FreePBX ships its PHP vendor/ tree pre-bundled in the source tarball at
@@ -21,9 +21,9 @@ stdenv.mkDerivation rec {
 
   src = fetchFromGitHub {
     owner = "FreePBX";
-    repo  = "framework";
-    rev   = "release/17.0";
-    hash  = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
+    repo = "framework";
+    rev = "release/17.0";
+    hash = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
   };
 
   nativeBuildInputs = [
@@ -119,12 +119,12 @@ stdenv.mkDerivation rec {
       FreePBX 17 is the first release targeting PHP 8.2, with a rewritten
       dialplan using GoSub instead of the deprecated Macro application.
     '';
-    homepage     = "https://www.freepbx.org";
+    homepage = "https://www.freepbx.org";
     downloadPage = "https://github.com/FreePBX";
-    changelog    = "https://github.com/FreePBX/framework/releases";
-    license      = with licenses; [ agpl3Only gpl3Only ];
-    maintainers  = with maintainers; [];
-    platforms    = platforms.linux;
-    mainProgram  = "fwconsole";
+    changelog = "https://github.com/FreePBX/framework/releases";
+    license = with licenses; [ agpl3Only gpl3Only ];
+    maintainers = with maintainers; [ ];
+    platforms = platforms.linux;
+    mainProgram = "fwconsole";
   };
 }

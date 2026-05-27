@@ -1,8 +1,8 @@
 # VM test: freepbx-cron.timer fires and freepbx-cron.service completes.
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 let
-  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
 in
 pkgs.testers.nixosTest {
   name = "freepbx-cron";
@@ -11,18 +11,18 @@ pkgs.testers.nixosTest {
     imports = [ ../nixos/modules/freepbx.nix ];
 
     services.freepbx = {
-      enable  = true;
+      enable = true;
       package = freepbxPackage;
       database.passwordFile = pkgs.writeText "db-pass" "test";
     };
 
     systemd.timers.freepbx-cron.timerConfig = lib.mkForce {
       OnCalendar = "*:0/1";
-      Persistent  = true;
+      Persistent = true;
     };
 
     virtualisation.memorySize = 2048;
-    virtualisation.diskSize   = 4096;
+    virtualisation.diskSize = 4096;
   };
 
   testScript = ''

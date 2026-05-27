@@ -1,9 +1,9 @@
 # VM test: simulates upgrading FreePBX by switching to a new package path.
 # Verifies freepbx-init re-deploys the web root without data loss.
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 let
-  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
 in
 pkgs.testers.nixosTest {
   name = "freepbx-upgrade";
@@ -12,13 +12,13 @@ pkgs.testers.nixosTest {
     imports = [ ../nixos/modules/freepbx.nix ];
 
     services.freepbx = {
-      enable  = true;
+      enable = true;
       package = freepbxPackage;
       database.passwordFile = pkgs.writeText "db-pass" "test";
     };
 
     virtualisation.memorySize = 2048;
-    virtualisation.diskSize   = 8192;
+    virtualisation.diskSize = 8192;
   };
 
   testScript = ''

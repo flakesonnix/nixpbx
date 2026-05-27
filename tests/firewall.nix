@@ -1,9 +1,9 @@
 # VM test: verify firewall rules are applied when openFirewall = true,
 # and absent when openFirewall = false (the default).
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 let
-  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
   dbPass = pkgs.writeText "db-pass" "test";
 in
 pkgs.testers.nixosTest {
@@ -13,11 +13,11 @@ pkgs.testers.nixosTest {
     server = { ... }: {
       imports = [ ../nixos/modules/freepbx.nix ];
       services.freepbx = {
-        enable       = true;
-        package      = freepbxPackage;
+        enable = true;
+        package = freepbxPackage;
         openFirewall = true;
-        sipPort      = 5060;
-        tlsSipPort   = 5061;
+        sipPort = 5060;
+        tlsSipPort = 5061;
         rtpPortRange = { from = 10000; to = 10010; };
         database.passwordFile = dbPass;
       };
@@ -27,8 +27,8 @@ pkgs.testers.nixosTest {
     serverClosed = { ... }: {
       imports = [ ../nixos/modules/freepbx.nix ];
       services.freepbx = {
-        enable       = true;
-        package      = freepbxPackage;
+        enable = true;
+        package = freepbxPackage;
         openFirewall = false;
         database.passwordFile = dbPass;
       };

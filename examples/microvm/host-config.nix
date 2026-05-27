@@ -13,13 +13,13 @@
 
   microvm.vms.freepbx-vm = {
     # Point at the guest flake defined in examples/microvm/flake.nix
-    flake  = inputs.self;
+    flake = inputs.self;
     # Auto-start on host boot and restart on failure
     autostart = true;
   };
 
   # Create the TAP bridge the VM connects to
-  networking.bridges.br-freepbx.interfaces = [];
+  networking.bridges.br-freepbx.interfaces = [ ];
   networking.interfaces.br-freepbx.ipv4.addresses = [
     { address = "192.168.100.1"; prefixLength = 24; }
   ];
@@ -29,8 +29,8 @@
 
   # Optional: NAT so the VM can reach the internet via the host
   networking.nat = {
-    enable            = true;
+    enable = true;
     internalInterfaces = [ "br-freepbx" ];
-    externalInterface  = "eth0";   # replace with your host's WAN interface
+    externalInterface = "eth0"; # replace with your host's WAN interface
   };
 }

@@ -1,8 +1,8 @@
 # VM test: MariaDB is provisioned with the correct database and user.
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 let
-  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
 in
 pkgs.testers.nixosTest {
   name = "freepbx-database";
@@ -11,11 +11,11 @@ pkgs.testers.nixosTest {
     imports = [ ../nixos/modules/freepbx.nix ];
 
     services.freepbx = {
-      enable  = true;
+      enable = true;
       package = freepbxPackage;
       database = {
-        name         = "asterisk";
-        user         = "asterisk";
+        name = "asterisk";
+        user = "asterisk";
         passwordFile = pkgs.writeText "db-pass" "hunter2";
       };
     };

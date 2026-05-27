@@ -1,26 +1,26 @@
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 let
-  freepbxPackage = pkgs.callPackage ../pkgs/freepbx {};
+  freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
 in
 pkgs.testers.nixosTest {
   name = "freepbx-basic";
 
-  meta.maintainers = [];
+  meta.maintainers = [ ];
 
   nodes.machine = { ... }: {
     imports = [ ../nixos/modules/freepbx.nix ];
 
     services.freepbx = {
-      enable   = true;
-      package  = freepbxPackage;
+      enable = true;
+      package = freepbxPackage;
       database.passwordFile = pkgs.writeText "freepbx-test-db-pass" "testpassword123";
       openFirewall = true;
     };
 
     services.xserver.enable = false;
     virtualisation.memorySize = 2048;
-    virtualisation.diskSize   = 8192;
+    virtualisation.diskSize = 8192;
   };
 
   testScript = ''
