@@ -1,0 +1,47 @@
+name: VM Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual trigger — VM tests are slow
+  workflow_dispatch:
+
+jobs:
+  vm-test:
+    name: ${{ matrix.test }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - basic
+          - database
+          - firewall
+          - cron
+          - upgrade
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            # Allow VM tests to use KVM if the runner exposes it
+            system-features = nixos-test kvm
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: nixpbx
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        continue-on-error: true
+
+      - name: Run ${{ matrix.test }} VM test
+        run: |
+          nix build .#checks.x86_64-linux.${{ matrix.test }} \
+            --print-build-logs \
+            --option sandbox true
+        timeout-minutes: 30

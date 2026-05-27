@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  eval:
+    name: Evaluate flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: nixpbx
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        continue-on-error: true
+
+      - name: Check flake evaluation (no build)
+        run: nix flake check --no-build
+
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+    needs: eval
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: nixpbx
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        continue-on-error: true
+
+      - name: Build freepbx package
+        run: nix build .#freepbx --print-build-logs
+
+      - name: Build module-options check (no VM needed)
+        run: nix build .#checks.x86_64-linux.module-options --print-build-logs
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check formatting
+        run: |
+          nix run nixpkgs#nixpkgs-fmt -- --check $(find . -name '*.nix' -not -path './.direnv/*')
+
+      - name: Static analysis
+        run: nix run nixpkgs#statix -- check .
+
+      - name: Dead code
+        run: nix run nixpkgs#deadnix -- $(find . -name '*.nix' -not -path './.direnv/*')
