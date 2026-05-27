@@ -1,6 +1,13 @@
 # nixpbx
 
-Nix flake packaging FreePBX 17 for NixOS, following nixpkgs conventions.
+**Standalone, third-party Nix flake packaging FreePBX 17 for NixOS.**
+
+This project is independent of the FreePBX project. It is not affiliated with,
+endorsed by, or maintained by Sangoma Technologies or the FreePBX community.
+FreePBX source code is fetched from the official upstream GitHub repositories
+([github.com/FreePBX](https://github.com/FreePBX)) and packaged according to
+nixpkgs conventions. Bug reports for this packaging belong here; bugs in
+FreePBX itself belong upstream.
 
 ## Usage
 
