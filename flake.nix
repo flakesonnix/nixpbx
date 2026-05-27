@@ -17,7 +17,12 @@
         };
 
         checks = {
-          basic = import ./tests/basic.nix { inherit pkgs; };
+          basic          = import ./tests/basic.nix          { inherit pkgs; };
+          firewall       = import ./tests/firewall.nix       { inherit pkgs; };
+          cron           = import ./tests/cron.nix           { inherit pkgs; };
+          upgrade        = import ./tests/upgrade.nix        { inherit pkgs; };
+          database       = import ./tests/database.nix       { inherit pkgs; };
+          module-options = import ./tests/module-options.nix { inherit pkgs; };
         };
 
         devShells.default = pkgs.mkShell {
