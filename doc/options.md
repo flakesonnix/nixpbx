@@ -21,16 +21,40 @@ services.freepbx.enable = true;
 ## `services.freepbx.package`
 
 **Type:** `package`  
-**Default:** `pkgs.freepbx`
+**Default:** set automatically by `nixosModules.freepbx` via the flake overlay
 
-The FreePBX package to use. Override to pin a specific version or add
-extra modules:
+The FreePBX package to use. When importing the module through the nixpbx flake
+(`nixpbx.nixosModules.freepbx`), this is set to `pkgs.freepbx` from the flake's
+overlay. Override to pin a specific version or add extra modules:
 
 ```nix
 services.freepbx.package = pkgs.freepbx.override {
   extraModules = [ myCustomModule ];
 };
 ```
+
+---
+
+## `services.freepbx.dataDir`
+
+**Type:** `str`  
+**Default:** `"/var/lib/freepbx"`
+
+Root directory for all writable FreePBX runtime state. The `freepbx-init`
+service creates subdirectories (`www/`, `sessions/`, `cache/`) here on first
+boot. The default for `webRoot` is derived from this value.
+
+Change this if you want FreePBX state on a dedicated partition or a network
+volume:
+
+```nix
+services.freepbx.dataDir = "/mnt/freepbx-data";
+```
+
+**Note:** `StateDirectory` in the systemd unit always creates
+`/var/lib/freepbx` as the actual on-disk location (systemd requires relative
+paths). If you set `dataDir` to something outside `/var/lib/`, you must create
+and chown the directory yourself before the service starts.
 
 ---
 
