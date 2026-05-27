@@ -26,7 +26,7 @@ stdenv.mkDerivation rec {
     repo  = "framework";
     rev   = "release/17.0";
     # run: nix-prefetch-url --unpack https://github.com/FreePBX/framework/archive/release/17.0.tar.gz
-    hash  = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash  = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
   };
 
   nativeBuildInputs = [

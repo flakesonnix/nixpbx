@@ -20,7 +20,7 @@ stdenv.mkDerivation rec {
     repo  = "framework";
     rev   = "release/17.0";
     # Must match the hash in default.nix
-    hash  = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash  = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
   };
 
   nativeBuildInputs = [
