@@ -51,12 +51,17 @@ stdenv.mkDerivation rec {
         "require_once('/etc/freepbx.conf');" \
         "require_once(getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf');"
 
-    # The Composer autoloader path baked into fwconsole points at the
-    # source tree location; redirect it to where we install it.
+    # fwconsole does not load the Composer autoloader by itself in FreePBX 17.
+    # bootstrap.php loads it, but fwconsole includes freepbx.conf directly
+    # instead of going through bootstrap.php. Inject a placeholder that we
+    # fill with the store path during installPhase.
+    sed -i '3a require_once "__FREEPBX_AUTOLOADER__";' amp_conf/bin/fwconsole
+    # Also make the config file path use FREEPBX_CONF env var so the NixOS
+    # module can control the location.
     substituteInPlace amp_conf/bin/fwconsole \
       --replace-warn \
-        "dirname(__FILE__).'/../htdocs/admin/libraries/Composer/vendor/autoload.php'" \
-        "getenv('AMPWEBROOT').'/admin/libraries/Composer/vendor/autoload.php'"
+        "include_once '/etc/freepbx.conf';" \
+        "include_once getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf';"
 
     runHook postConfigure
   '';
@@ -94,9 +99,13 @@ stdenv.mkDerivation rec {
     # fwconsole wrapper — needs a writable CWD; use /var/lib/freepbx at runtime
     install -d $out/bin
     install -Dm755 amp_conf/bin/fwconsole $out/share/freepbx/bin/fwconsole
+    substituteInPlace $out/share/freepbx/bin/fwconsole \
+      --replace "__FREEPBX_AUTOLOADER__" \
+        "$out/share/freepbx/www/admin/libraries/Composer/vendor/autoload.php"
     makeWrapper ${php82}/bin/php $out/bin/fwconsole \
       --add-flags "$out/share/freepbx/bin/fwconsole" \
       --set AMPWEBROOT "$out/share/freepbx/www" \
+      --set FREEPBX_CONF "/etc/freepbx.conf" \
       --run 'cd /var/lib/freepbx 2>/dev/null || true'
 
     runHook postInstall

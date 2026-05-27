@@ -175,7 +175,9 @@ in
       # PHP-FPM pool for FreePBX
       phpfpm.pools.freepbx = {
         inherit (cfg) user group;
-        phpPackage = pkgs.php82;
+        phpPackage = pkgs.php82.withExtensions ({ enabled, all }: enabled ++ (with all; [
+          pdo_mysql curl gd mbstring openssl xml zip bcmath intl gettext sockets
+        ]));
         settings = {
           "listen.owner" = config.services.httpd.user;
           "listen.group" = config.services.httpd.group;
