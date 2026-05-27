@@ -2,20 +2,18 @@
 , stdenv
 , fetchFromGitHub
 , php82
-, php82Packages
-, nodejs_20
 , makeWrapper
 , sox
 , ffmpeg-full
 , lame
 , flac
-, callPackage
 , extraModules ? []
 }:
 
+# FreePBX ships its PHP vendor/ tree pre-bundled in the source tarball at
+# amp_conf/htdocs/admin/libraries/Composer/vendor/. No composer run needed.
 let
-  freepbxModules = callPackage ./modules.nix { inherit fetchFromGitHub; };
-  vendorDir = callPackage ./composer-env.nix { inherit php82 php82Packages fetchFromGitHub; };
+  freepbxModules = import ./modules.nix { inherit fetchFromGitHub; };
 in
 stdenv.mkDerivation rec {
   pname = "freepbx";
@@ -25,14 +23,10 @@ stdenv.mkDerivation rec {
     owner = "FreePBX";
     repo  = "framework";
     rev   = "release/17.0";
-    # run: nix-prefetch-url --unpack https://github.com/FreePBX/framework/archive/release/17.0.tar.gz
     hash  = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
   };
 
   nativeBuildInputs = [
-    nodejs_20
-    php82
-    php82Packages.composer
     makeWrapper
   ];
 
@@ -44,71 +38,66 @@ stdenv.mkDerivation rec {
     flac
   ];
 
-  patches = [
-    ./patches/0001-fix-hardcoded-paths.patch
-  ];
+  dontBuild = true;
 
   configurePhase = ''
     runHook preConfigure
 
-    # Remaining runtime path references that can't be patched at source level
-    substituteInPlace install \
-      --replace '/var/www/html'          "$out/share/freepbx/www" \
-      --replace '/etc/freepbx.conf'      "$out/etc/freepbx.conf" \
-      --replace '/etc/asterisk'          "$out/etc/asterisk" \
-      --replace '/var/spool/asterisk'    "/var/spool/asterisk" \
-      --replace '/var/log/asterisk'      "/var/log/asterisk"
-
+    # bootstrap.php probes a hardcoded list of freepbx.conf locations.
+    # Prepend an env-var override so the NixOS module can point it at
+    # /etc/freepbx.conf without patching every PHP file that reads config.
     substituteInPlace amp_conf/htdocs/admin/bootstrap.php \
-      --replace '/etc/freepbx.conf' "$out/etc/freepbx.conf"
+      --replace-warn \
+        "require_once('/etc/freepbx.conf');" \
+        "require_once(getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf');"
+
+    # The Composer autoloader path baked into fwconsole points at the
+    # source tree location; redirect it to where we install it.
+    substituteInPlace amp_conf/bin/fwconsole \
+      --replace-warn \
+        "dirname(__FILE__).'/../htdocs/admin/libraries/Composer/vendor/autoload.php'" \
+        "getenv('AMPWEBROOT').'/admin/libraries/Composer/vendor/autoload.php'"
 
     runHook postConfigure
-  '';
-
-  buildPhase = ''
-    runHook preBuild
-
-    # Use pre-vendored composer dependencies (FOD)
-    cp -r ${vendorDir} vendor
-    chmod -R u+w vendor
-
-    runHook postBuild
   '';
 
   installPhase = ''
     runHook preInstall
 
+    # Web root (pre-vendored; Composer vendor is already at htdocs/admin/libraries/Composer/vendor/)
     install -d $out/share/freepbx/www
+    cp -r amp_conf/htdocs/. $out/share/freepbx/www/
+
+    # AGI scripts
     install -d $out/share/freepbx/agi-bin
-    install -d $out/share/freepbx/bin
-    install -d $out/etc/freepbx
-    install -d $out/bin
+    cp -r amp_conf/agi-bin/. $out/share/freepbx/agi-bin/
 
-    cp -r amp_conf/htdocs/.  $out/share/freepbx/www/
-    cp -r amp_conf/bin/.     $out/share/freepbx/bin/
-    cp -r agi-bin/.          $out/share/freepbx/agi-bin/
-    cp -r vendor/            $out/share/freepbx/www/vendor/
+    # Asterisk config templates
+    install -d $out/share/freepbx/astetc
+    cp -r amp_conf/astetc/. $out/share/freepbx/astetc/
 
-    # Install OSS modules into www
+    # Upgrade scripts
+    install -d $out/share/freepbx/upgrades
+    cp -r upgrades/. $out/share/freepbx/upgrades/
+
+    # OSS modules
+    install -d $out/share/freepbx/www/admin/modules
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: src: ''
       cp -r ${src}/. $out/share/freepbx/www/admin/modules/${name}/
     '') freepbxModules)}
 
-    # Extra user-supplied modules
+    # User-supplied extra modules
     ${lib.concatMapStringsSep "\n" (mod: ''
       cp -r ${mod}/. $out/share/freepbx/www/admin/modules/$(basename ${mod})/
     '') extraModules}
 
+    # fwconsole wrapper — needs a writable CWD; use /var/lib/freepbx at runtime
+    install -d $out/bin
     install -Dm755 amp_conf/bin/fwconsole $out/share/freepbx/bin/fwconsole
-
     makeWrapper ${php82}/bin/php $out/bin/fwconsole \
       --add-flags "$out/share/freepbx/bin/fwconsole" \
       --set AMPWEBROOT "$out/share/freepbx/www" \
-      --set AMPSYTETC "$out/etc/freepbx" \
       --run 'cd /var/lib/freepbx 2>/dev/null || true'
-
-    makeWrapper ${php82}/bin/php $out/bin/freepbx-php \
-      --set AMPWEBROOT "$out/share/freepbx/www"
 
     runHook postInstall
   '';
@@ -127,9 +116,8 @@ stdenv.mkDerivation rec {
       trunks, routes, IVRs, voicemail, and dozens of other telephony features
       through a browser-based admin panel.
 
-      FreePBX 17 is the first release targeting Debian Linux and PHP 8.2,
-      with a rewritten dialplan using GoSub instead of the deprecated Macro
-      application.
+      FreePBX 17 is the first release targeting PHP 8.2, with a rewritten
+      dialplan using GoSub instead of the deprecated Macro application.
     '';
     homepage     = "https://www.freepbx.org";
     downloadPage = "https://github.com/FreePBX";
