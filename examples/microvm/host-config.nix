@@ -19,18 +19,19 @@
   };
 
   # Create the TAP bridge the VM connects to
-  networking.bridges.br-freepbx.interfaces = [ ];
-  networking.interfaces.br-freepbx.ipv4.addresses = [
-    { address = "192.168.100.1"; prefixLength = 24; }
-  ];
+  networking = {
+    bridges.br-freepbx.interfaces = [ ];
+    interfaces.br-freepbx.ipv4.addresses = [
+      { address = "192.168.100.1"; prefixLength = 24; }
+    ];
+    # Optional: NAT so the VM can reach the internet via the host
+    nat = {
+      enable = true;
+      internalInterfaces = [ "br-freepbx" ];
+      externalInterface = "eth0"; # replace with your host's WAN interface
+    };
+  };
 
   # Allow the host to forward packets to/from the VM
   boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
-
-  # Optional: NAT so the VM can reach the internet via the host
-  networking.nat = {
-    enable = true;
-    internalInterfaces = [ "br-freepbx" ];
-    externalInterface = "eth0"; # replace with your host's WAN interface
-  };
 }

@@ -79,17 +79,21 @@
             };
 
             # ── FreePBX service ───────────────────────────────────────────
-            services.freepbx = {
-              enable = true;
-              dataDir = "/var/lib/freepbx";
-
-              database.passwordFile = "/run/secrets/freepbx-db-pass";
-              adminPasswordFile = "/run/secrets/freepbx-admin-pass";
-
-              openFirewall = true;
-              sipPort = 5060;
-              tlsSipPort = 5061;
-              rtpPortRange = { from = 10000; to = 20000; };
+            services = {
+              freepbx = {
+                enable = true;
+                dataDir = "/var/lib/freepbx";
+                # Paths written by systemd LoadCredential below
+                database.passwordFile =
+                  "/run/credentials/freepbx-init.service/freepbx-db-pass";
+                adminPasswordFile =
+                  "/run/credentials/freepbx-init.service/freepbx-admin-pass";
+                openFirewall = true;
+                sipPort = 5060;
+                tlsSipPort = 5061;
+                rtpPortRange = { from = 10000; to = 20000; };
+              };
+              xserver.enable = false;
             };
 
             # ── secrets (use agenix, sops-nix, or systemd-creds) ─────────
@@ -98,16 +102,9 @@
               "freepbx-db-pass:/etc/nixos/secrets/freepbx-db-pass"
               "freepbx-admin-pass:/etc/nixos/secrets/freepbx-admin-pass"
             ];
-            services.freepbx.database.passwordFile =
-              "/run/credentials/freepbx-init.service/freepbx-db-pass";
-            services.freepbx.adminPasswordFile =
-              "/run/credentials/freepbx-init.service/freepbx-admin-pass";
 
             # ── minimal guest OS ──────────────────────────────────────────
             system.stateVersion = "25.05";
-
-            # No GUI needed
-            services.xserver.enable = false;
 
             # Networking inside the VM — static IP on the TAP interface.
             # Adjust to match your host bridge subnet.

@@ -150,7 +150,7 @@ in
     users.users.${cfg.user} = {
       isSystemUser = true;
       inherit (cfg) group;
-      home = "/var/lib/freepbx";
+      home = cfg.dataDir;
       createHome = false;
       description = "FreePBX / Asterisk service user";
       extraGroups = [ "audio" ];
@@ -158,70 +158,72 @@ in
 
     users.groups.${cfg.group} = { };
 
-    # MariaDB with FreePBX database
-    services.mysql = {
-      enable = true;
-      package = pkgs.mariadb;
-      ensureDatabases = [ cfg.database.name ];
-      ensureUsers = [
-        {
-          name = cfg.database.user;
-          ensurePermissions."${cfg.database.name}.*" = "ALL PRIVILEGES";
-        }
-      ];
-    };
-
-    # PHP-FPM pool for FreePBX
-    services.phpfpm.pools.freepbx = {
-      inherit (cfg) user group;
-      phpPackage = pkgs.php82;
-      settings = {
-        "listen.owner" = config.services.httpd.user;
-        "listen.group" = config.services.httpd.group;
-        "pm" = "dynamic";
-        "pm.max_children" = 50;
-        "pm.start_servers" = 5;
-        "pm.min_spare_servers" = 5;
-        "pm.max_spare_servers" = 35;
-        "php_value[session.save_path]" = "${cfg.dataDir}/sessions";
-        "php_admin_value[error_log]" = "${cfg.logDir}/php-fpm.log";
-        "php_admin_flag[log_errors]" = true;
-        "env[FREEPBX_CONF]" = "/etc/freepbx.conf";
+    services = {
+      # MariaDB with FreePBX database
+      mysql = {
+        enable = true;
+        package = pkgs.mariadb;
+        ensureDatabases = [ cfg.database.name ];
+        ensureUsers = [
+          {
+            name = cfg.database.user;
+            ensurePermissions."${cfg.database.name}.*" = "ALL PRIVILEGES";
+          }
+        ];
       };
-      phpOptions = ''
-        extension = pdo_mysql
-        extension = curl
-        extension = gd
-        extension = mbstring
-        extension = openssl
-        extension = xml
-        extension = zip
-        extension = bcmath
-        extension = intl
-        extension = gettext
-        extension = sockets
-      '';
-    };
 
-    # Apache HTTP server
-    services.httpd = {
-      enable = true;
-      user = "wwwrun";
-      group = "wwwrun";
-      enablePHP = false;
-      virtualHosts."freepbx" = {
-        documentRoot = cfg.webRoot;
-        extraConfig = ''
-          <Directory "${cfg.webRoot}">
-            AllowOverride All
-            Options -Indexes +FollowSymLinks
-            Require all granted
-          </Directory>
-
-          <FilesMatch \.php$>
-            SetHandler "proxy:unix:${config.services.phpfpm.pools.freepbx.socket}|fcgi://localhost"
-          </FilesMatch>
+      # PHP-FPM pool for FreePBX
+      phpfpm.pools.freepbx = {
+        inherit (cfg) user group;
+        phpPackage = pkgs.php82;
+        settings = {
+          "listen.owner" = config.services.httpd.user;
+          "listen.group" = config.services.httpd.group;
+          "pm" = "dynamic";
+          "pm.max_children" = 50;
+          "pm.start_servers" = 5;
+          "pm.min_spare_servers" = 5;
+          "pm.max_spare_servers" = 35;
+          "php_value[session.save_path]" = "${cfg.dataDir}/sessions";
+          "php_admin_value[error_log]" = "${cfg.logDir}/php-fpm.log";
+          "php_admin_flag[log_errors]" = true;
+          "env[FREEPBX_CONF]" = "/etc/freepbx.conf";
+        };
+        phpOptions = ''
+          extension = pdo_mysql
+          extension = curl
+          extension = gd
+          extension = mbstring
+          extension = openssl
+          extension = xml
+          extension = zip
+          extension = bcmath
+          extension = intl
+          extension = gettext
+          extension = sockets
         '';
+      };
+
+      # Apache HTTP server
+      httpd = {
+        enable = true;
+        user = "wwwrun";
+        group = "wwwrun";
+        enablePHP = false;
+        virtualHosts."freepbx" = {
+          documentRoot = cfg.webRoot;
+          extraConfig = ''
+            <Directory "${cfg.webRoot}">
+              AllowOverride All
+              Options -Indexes +FollowSymLinks
+              Require all granted
+            </Directory>
+
+            <FilesMatch \.php$>
+              SetHandler "proxy:unix:${config.services.phpfpm.pools.freepbx.socket}|fcgi://localhost"
+            </FilesMatch>
+          '';
+        };
       };
     };
 

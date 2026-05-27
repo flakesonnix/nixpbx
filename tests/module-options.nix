@@ -8,7 +8,7 @@
 { pkgs ? import <nixpkgs> { } }:
 
 let
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
   freepbxPackage = pkgs.callPackage ../pkgs/freepbx { };
 
   evalConfig = module:
@@ -39,9 +39,11 @@ let
 
     (mustEval "custom user and group"
       {
-        services.freepbx.enable = true;
-        services.freepbx.user = "pbx";
-        services.freepbx.group = "pbx";
+        services.freepbx = {
+          enable = true;
+          user = "pbx";
+          group = "pbx";
+        };
       })
 
     (mustEval "custom dataDir changes webRoot default"
@@ -52,16 +54,19 @@ let
 
     (mustEval "custom SIP ports"
       {
-        services.freepbx.enable = true;
-        services.freepbx.sipPort = 5160;
-        services.freepbx.tlsSipPort = 5161;
+        services.freepbx = {
+          enable = true;
+          sipPort = 5160;
+          tlsSipPort = 5161;
+        };
       })
 
     (mustEval "custom RTP range"
       {
-        services.freepbx.enable = true;
-        services.freepbx.rtpPortRange.from = 20000;
-        services.freepbx.rtpPortRange.to = 30000;
+        services.freepbx = {
+          enable = true;
+          rtpPortRange = { from = 20000; to = 30000; };
+        };
       })
 
     (mustEval "database.passwordFile path"
