@@ -12,8 +12,15 @@ in
       description = "FreePBX package to use. Must be set when using this module outside of the nixpbx flake.";
     };
 
-    asteriskPackage = lib.mkPackageOption pkgs "asterisk" {
-      default = [ "asterisk" ];
+    asteriskPackage = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.asterisk.overrideAttrs (o: {
+        postInstall = (o.postInstall or "") + ''
+          make -j$NIX_BUILD_CORES install-docs || true
+        '';
+      });
+      defaultText = lib.literalMD "`pkgs.asterisk` with `make install-docs` added to postInstall (Asterisk 22's stasis module needs XML documentation at runtime)";
+      description = "Asterisk PBX package. The default includes documentation needed by `stasis` at runtime.";
     };
 
     user = lib.mkOption {
@@ -201,19 +208,11 @@ in
           "php_admin_flag[log_errors]" = true;
           "env[FREEPBX_CONF]" = "/etc/freepbx.conf";
         };
-        phpOptions = ''
-          extension = pdo_mysql
-          extension = curl
-          extension = gd
-          extension = mbstring
-          extension = openssl
-          extension = xml
-          extension = zip
-          extension = bcmath
-          extension = intl
-          extension = gettext
-          extension = sockets
-        '';
+        # Extensions are compiled statically by withExtensions above.
+        # The extension = directives are NOT needed — they cause warnings
+        # because PHP's extension_dir points at the base (unwrapped) php
+        # which has no .so files. The modules are already in the binary.
+        phpOptions = "";
       };
 
       # Apache HTTP server
@@ -334,6 +333,7 @@ in
             Group = cfg.group;
             PIDFile = "/run/asterisk/asterisk.pid";
             RuntimeDirectory = "asterisk";
+            StateDirectory = "asterisk";
             ExecStart = "${lib.getExe cfg.asteriskPackage} -f -U ${cfg.user} -G ${cfg.group}";
             ExecReload = "${lib.getExe cfg.asteriskPackage} -rx 'core reload'";
             ExecStop = "${lib.getExe cfg.asteriskPackage} -rx 'core stop now'";
