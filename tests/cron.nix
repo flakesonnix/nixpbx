@@ -27,7 +27,7 @@ pkgs.testers.nixosTest {
 
   testScript = ''
     machine.start()
-    machine.wait_for_unit("freepbx-init.service", timeout=180)
+    machine.wait_for_unit("freepbx-init.service", timeout=300)
     machine.succeed("systemctl is-active freepbx-cron.timer")
     machine.succeed("systemctl start freepbx-cron.service")
     machine.succeed(

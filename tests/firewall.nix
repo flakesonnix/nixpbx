@@ -39,8 +39,8 @@ pkgs.testers.nixosTest {
   testScript = ''
     server.start()
     serverClosed.start()
-    server.wait_for_unit("multi-user.target")
-    serverClosed.wait_for_unit("multi-user.target")
+    server.wait_for_unit("freepbx-init.service", timeout=300)
+    serverClosed.wait_for_unit("freepbx-init.service", timeout=300)
 
     server.succeed("iptables -L INPUT -n | grep -q '5060'")
     server.succeed("iptables -L INPUT -n | grep -q '5061'")

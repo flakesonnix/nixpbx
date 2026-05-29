@@ -166,17 +166,13 @@ in
     users.groups.${cfg.group} = { };
 
     services = {
-      # MariaDB with FreePBX database
+      # MariaDB with FreePBX database.
+      # The DB user is created with password auth in freepbx-init (not via
+      # ensureUsers, which creates unix_socket-only users on MariaDB).
       mysql = {
         enable = true;
         package = pkgs.mariadb;
         ensureDatabases = [ cfg.database.name ];
-        ensureUsers = [
-          {
-            name = cfg.database.user;
-            ensurePermissions."${cfg.database.name}.*" = "ALL PRIVILEGES";
-          }
-        ];
       };
 
       # PHP-FPM pool for FreePBX
@@ -215,7 +211,7 @@ in
         phpOptions = "";
       };
 
-      # Apache HTTP server
+      # Apache HTTP server — web root deployed by freepbx-init
       httpd = {
         enable = true;
         user = "wwwrun";
@@ -236,15 +232,18 @@ in
           '';
         };
       };
+
+
     };
 
     systemd = {
       services = {
-        # freepbx-init: runs once on first boot (or after a package change) to
-        # deploy writable web files and write /etc/freepbx.conf.
+        # freepbx-init: deploys files, sets up DB user, installs modules.
+        # Runs once on first boot (or when package changes).
         freepbx-init = {
           description = "FreePBX first-boot initialization";
           wantedBy = [ "multi-user.target" ];
+          before = [ "httpd.service" "phpfpm-freepbx.service" ];
           after = [ "mysql.service" "network.target" ];
           requires = [ "mysql.service" ];
           serviceConfig = {
@@ -257,17 +256,8 @@ in
           script = ''
             set -euo pipefail
 
-            # Deploy web root (copy store → writable state dir)
-            if [ ! -f "${cfg.webRoot}/.deployed" ]; then
-              echo "Deploying FreePBX web files..."
-              cp -rT ${cfg.package}/share/freepbx/www ${cfg.webRoot}
-              chmod -R u+w ${cfg.webRoot}
-              chown -R ${cfg.user}:${cfg.group} ${cfg.webRoot}
-              touch ${cfg.webRoot}/.deployed
-            fi
-
-            # Write /etc/freepbx.conf. DB password is read from file at runtime
-            # so it never appears in the Nix store or the systemd unit.
+            # Write /etc/freepbx.conf. DB password read from file at runtime
+            # (never appears in Nix store).
             DB_PASS=""
             ${lib.optionalString (cfg.database.passwordFile != null) ''
               DB_PASS=$(cat ${lib.escapeShellArg cfg.database.passwordFile})
@@ -293,20 +283,63 @@ in
             chmod 640 /etc/freepbx.conf
             chown root:${cfg.group} /etc/freepbx.conf
 
+            # Deploy web root (copy store → writable state dir)
+            if [ ! -f "${cfg.webRoot}/.deployed" ]; then
+              echo "Deploying FreePBX web files..."
+              mkdir -p ${cfg.webRoot}
+              cp -rT ${cfg.package}/share/freepbx/www ${cfg.webRoot}
+              chmod -R u+w ${cfg.webRoot}
+              chown -R ${cfg.user}:${cfg.group} ${cfg.webRoot}
+              touch ${cfg.webRoot}/.deployed
+            fi
+
             # Spool and log dirs
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.spoolDir}
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.spoolDir}/voicemail
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.logDir}
 
-            # Run FreePBX bootstrap
+            # Set up DB user with password auth (ensureUsers uses unix_socket
+            # on MariaDB, which FreePBX cannot use over TCP).
+            if [ -n "$DB_PASS" ]; then
+              mysql -u root <<-SQL
+                CREATE USER IF NOT EXISTS '${cfg.database.user}'@'localhost';
+                ALTER USER '${cfg.database.user}'@'localhost' IDENTIFIED BY '$DB_PASS';
+                GRANT ALL PRIVILEGES ON \`${cfg.database.name}\`.* TO '${cfg.database.user}'@'localhost';
+                FLUSH PRIVILEGES;
+              SQL
+            fi
+
+            # Install core + framework modules (creates DB schema).
+            # Idempotent — skips if already installed.
+            ${lib.getExe cfg.package} ma install core --quiet || true
+            ${lib.getExe cfg.package} ma install framework --quiet || true
+
+            # Fix ownership
             ${lib.getExe cfg.package} chown --quiet || true
-            ${lib.getExe cfg.package} reload --quiet || true
 
             # Set admin password if provided
             ${lib.optionalString (cfg.adminPasswordFile != null) ''
               ADMIN_PASS=$(cat ${cfg.adminPasswordFile})
               ${lib.getExe cfg.package} userman --reset-admin-password "$ADMIN_PASS" || true
             ''}
+          '';
+        };
+
+        # freepbx-reload: (re)generate Asterisk config from FreePBX DB.
+        # Runs after any service start; safe to call repeatedly.
+        freepbx-reload = {
+          description = "FreePBX config reload (Asterisk config generation)";
+          after = [ "freepbx-init.service" "asterisk.service" ];
+          requires = [ "freepbx-init.service" ];
+          wantedBy = [ "asterisk.service" ];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            User = cfg.user;
+            Group = cfg.group;
+          };
+          script = ''
+            ${lib.getExe cfg.package} reload --quiet || true
           '';
         };
 
@@ -322,11 +355,12 @@ in
           script = "${lib.getExe cfg.package} job --quiet";
         };
 
-        # Asterisk systemd service (if not provided by a dedicated NixOS module)
+        # Asterisk systemd service
         asterisk = {
           description = "Asterisk PBX";
           wantedBy = [ "multi-user.target" ];
-          after = [ "network.target" "mysql.service" ];
+          after = [ "network.target" "freepbx-init.service" ];
+          requires = [ "freepbx-init.service" ];
           serviceConfig = {
             Type = "forking";
             User = cfg.user;
@@ -339,6 +373,11 @@ in
             ExecStop = "${lib.getExe cfg.asteriskPackage} -rx 'core stop now'";
             Restart = "on-failure";
           };
+        };
+
+        # httpd must wait for freepbx-init to deploy the web root
+        httpd = {
+          after = [ "freepbx-init.service" ];
         };
       };
 
