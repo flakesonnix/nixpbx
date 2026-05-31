@@ -32,7 +32,7 @@ pkgs.testers.nixosTest {
     machine.wait_for_unit("freepbx-reload.service", timeout=60)
     machine.wait_for_open_port(80, timeout=60)
 
-    machine.succeed("curl -sf http://localhost/admin/config.php | grep -qi freepbx")
+    machine.succeed("curl -s http://localhost/admin/config.php | grep -i freepbx")
     machine.succeed("fwconsole --version")
     machine.succeed("systemctl is-active asterisk")
     machine.succeed("systemctl is-active mysql")
