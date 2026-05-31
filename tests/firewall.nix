@@ -42,6 +42,9 @@ pkgs.testers.nixosTest {
     server.wait_for_unit("freepbx-init.service", timeout=300)
     serverClosed.wait_for_unit("freepbx-init.service", timeout=300)
 
+    server.wait_for_unit("firewall.service", timeout=30)
+    serverClosed.wait_for_unit("firewall.service", timeout=30)
+    server.succeed("iptables-save >&2")  # debug: dump rules to stderr
     server.succeed("iptables-save | grep -q 'dpt:5060'")
     server.succeed("iptables-save | grep -q 'dpt:5061'")
     server.succeed(
