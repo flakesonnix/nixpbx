@@ -44,14 +44,13 @@ pkgs.testers.nixosTest {
 
     server.wait_for_unit("firewall.service", timeout=30)
     serverClosed.wait_for_unit("firewall.service", timeout=30)
-    server.succeed("iptables-save >&2")  # debug: dump rules to stderr
-    server.succeed("iptables-save | grep -q 'dpt:5060'")
-    server.succeed("iptables-save | grep -q 'dpt:5061'")
+    server.succeed("iptables-save | grep -q 'dport 5060'")
+    server.succeed("iptables-save | grep -q 'dport 5061'")
     server.succeed(
-      "iptables-save | grep -qE 'dpt:10000:10010'"
+      "iptables-save | grep -qE 'dport 10000:10010'"
     )
-    server.succeed("iptables-save | grep -q 'dpt:80'")
-    server.succeed("iptables-save | grep -q 'dpt:443'")
-    serverClosed.fail("iptables-save | grep -q 'dpt:5060'")
+    server.succeed("iptables-save | grep -q 'dport 80'")
+    server.succeed("iptables-save | grep -q 'dport 443'")
+    serverClosed.fail("iptables-save | grep -q 'dport 5060'")
   '';
 }
