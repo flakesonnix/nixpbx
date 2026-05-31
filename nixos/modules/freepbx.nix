@@ -166,7 +166,7 @@ in
     users.groups.${cfg.group} = { };
 
     services = {
-      # MariaDB with FreePBX database.
+      # MariaDB (via services.mysql which can run either MySQL or MariaDB).
       # The DB user is created with password auth in freepbx-init (not via
       # ensureUsers, which creates unix_socket-only users on MariaDB).
       mysql = {
