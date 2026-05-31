@@ -42,13 +42,13 @@ pkgs.testers.nixosTest {
     server.wait_for_unit("freepbx-init.service", timeout=300)
     serverClosed.wait_for_unit("freepbx-init.service", timeout=300)
 
-    server.succeed("iptables -L INPUT -n | grep -q '5060'")
-    server.succeed("iptables -L INPUT -n | grep -q '5061'")
+    server.succeed("iptables-save | grep -q 'dpt:5060'")
+    server.succeed("iptables-save | grep -q 'dpt:5061'")
     server.succeed(
-      "iptables -L INPUT -n | grep -qE '10000.*10010|udp dpt:10000:10010'"
+      "iptables-save | grep -qE 'dpt:10000:10010'"
     )
-    server.succeed("iptables -L INPUT -n | grep -q 'dpt:80'")
-    server.succeed("iptables -L INPUT -n | grep -q 'dpt:443'")
-    serverClosed.fail("iptables -L INPUT -n | grep -q 'dpt:5060'")
+    server.succeed("iptables-save | grep -q 'dpt:80'")
+    server.succeed("iptables-save | grep -q 'dpt:443'")
+    serverClosed.fail("iptables-save | grep -q 'dpt:5060'")
   '';
 }

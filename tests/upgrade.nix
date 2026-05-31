@@ -27,7 +27,7 @@ pkgs.testers.nixosTest {
     machine.wait_for_open_port(80, timeout=60)
     machine.wait_for_unit("freepbx-reload.service", timeout=60)
 
-    machine.succeed("touch /var/lib/freepbx/www/admin/modules/mymodule/.installed")
+    machine.succeed("mkdir -p /var/lib/freepbx/www/admin/modules/mymodule && touch /var/lib/freepbx/www/admin/modules/mymodule/.installed")
     machine.succeed("rm /var/lib/freepbx/www/.deployed")
     machine.succeed("systemctl restart freepbx-init.service")
     machine.wait_for_unit("freepbx-init.service")
