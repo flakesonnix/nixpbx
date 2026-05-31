@@ -41,94 +41,94 @@ stdenv.mkDerivation rec {
   dontBuild = true;
 
   configurePhase = ''
-    runHook preConfigure
+        runHook preConfigure
 
-    # bootstrap.php probes a hardcoded list of freepbx.conf locations.
-    # Prepend an env-var override so the NixOS module can point it at
-    # /etc/freepbx.conf without patching every PHP file that reads config.
-    substituteInPlace amp_conf/htdocs/admin/bootstrap.php \
-      --replace-warn \
-        "require_once('/etc/freepbx.conf');" \
-        "require_once(getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf');"
+        # bootstrap.php probes a hardcoded list of freepbx.conf locations.
+        # Prepend an env-var override so the NixOS module can point it at
+        # /etc/freepbx.conf without patching every PHP file that reads config.
+        substituteInPlace amp_conf/htdocs/admin/bootstrap.php \
+          --replace-warn \
+            "require_once('/etc/freepbx.conf');" \
+            "require_once(getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf');"
 
-    # bootstrap_include_hooks crashes during first boot (Modulelist unavailable).
-    # Wrap in a silent try-catch — hooks are non-critical for CLI operations.
-    substituteInPlace amp_conf/htdocs/admin/bootstrap.php \
-      --replace-warn \
-        "bootstrap_include_hooks('pre_module_load', 'all_mods');" \
-        "try { bootstrap_include_hooks('pre_module_load', 'all_mods'); } catch(\Throwable \$e) {}"
+        # bootstrap_include_hooks crashes during first boot (Modulelist unavailable).
+        # Wrap in a silent try-catch — hooks are non-critical for CLI operations.
+        substituteInPlace amp_conf/htdocs/admin/bootstrap.php \
+          --replace-warn \
+            "bootstrap_include_hooks('pre_module_load', 'all_mods');" \
+            "try { bootstrap_include_hooks('pre_module_load', 'all_mods'); } catch(\Throwable \$e) {}"
 
-    # Cache->init() line 247 tries $this->freepbx->Notifications->add_error()
-    # which triggers a circular autoload chain on first boot. Protect the call.
-    substituteInPlace amp_conf/htdocs/admin/libraries/BMO/Cache.class.php \
-      --replace-warn \
-        '$this->freepbx->Notifications->add_error('"'"'framework'"'"', '"'"'CACHEPATCH'"'"', _('"'"'Cache path is not writable!'"'"'), sprintf(_("The cache path of %s is not writable, caching is not enabled as a result the system might be slower. Please fix this by running '"'"'fwconsole chown'"'"' from the CLI."),$cachePath), "", true, true);' \
-        'try { $this->freepbx->Notifications->add_error('"'"'framework'"'"', '"'"'CACHEPATCH'"'"', _('"'"'Cache path is not writable!'"'"'), sprintf(_("The cache path of %s is not writable, caching is not enabled as a result the system might be slower. Please fix this by running '"'"'fwconsole chown'"'"' from the CLI."),$cachePath), "", true, true); } catch(\Exception $e) {}'
+        # Cache->init() line 247 tries $this->freepbx->Notifications->add_error()
+        # which triggers a circular autoload chain on first boot. Protect the call.
+        substituteInPlace amp_conf/htdocs/admin/libraries/BMO/Cache.class.php \
+          --replace-warn \
+            '$this->freepbx->Notifications->add_error('"'"'framework'"'"', '"'"'CACHEPATCH'"'"', _('"'"'Cache path is not writable!'"'"'), sprintf(_("The cache path of %s is not writable, caching is not enabled as a result the system might be slower. Please fix this by running '"'"'fwconsole chown'"'"' from the CLI."),$cachePath), "", true, true);' \
+            'try { $this->freepbx->Notifications->add_error('"'"'framework'"'"', '"'"'CACHEPATCH'"'"', _('"'"'Cache path is not writable!'"'"'), sprintf(_("The cache path of %s is not writable, caching is not enabled as a result the system might be slower. Please fix this by running '"'"'fwconsole chown'"'"' from the CLI."),$cachePath), "", true, true); } catch(\Exception $e) {}'
 
-    # Modulelist->get() calls Cache->contains() which triggers a circular
-    # dependency chain on first boot. Replace the method body to short-circuit
-    # when no modules are cached yet.
-    substituteInPlace amp_conf/htdocs/admin/libraries/BMO/Modulelist.class.php \
-      --replace-warn \
-        'public function get() {
-		if(!empty($this->modules)) {
-			return $this->modules;
-		}
-		if ($this->FreePBX->Cache->contains('"'"'modulelist_modules'"'"')) {
-			$this->modules = $this->FreePBX->Cache->fetch('"'"'modulelist_modules'"'"');
-			return $this->modules;
-		}
-		return array();
-	}' \
-        'public function get() {
-		return $this->modules;
-	}'
+        # Modulelist->get() calls Cache->contains() which triggers a circular
+        # dependency chain on first boot. Replace the method body to short-circuit
+        # when no modules are cached yet.
+        substituteInPlace amp_conf/htdocs/admin/libraries/BMO/Modulelist.class.php \
+          --replace-warn \
+            'public function get() {
+    		if(!empty($this->modules)) {
+    			return $this->modules;
+    		}
+    		if ($this->FreePBX->Cache->contains('"'"'modulelist_modules'"'"')) {
+    			$this->modules = $this->FreePBX->Cache->fetch('"'"'modulelist_modules'"'"');
+    			return $this->modules;
+    		}
+    		return array();
+    	}' \
+            'public function get() {
+    		return $this->modules;
+    	}'
 
-    # fwconsole:75 needs Modulelist and Modules. Wrap in try-catch since they
-    # may not be registered in a fresh DB.
-    substituteInPlace amp_conf/bin/fwconsole \
-      --replace-warn \
-        '$list = FreePBX::Modulelist()->get();' \
-        'try { $list = FreePBX::Modulelist()->get(); } catch(\Exception $e) { $list = array(); }'
-    substituteInPlace amp_conf/bin/fwconsole \
-      --replace-warn \
-        '$amodules = FreePBX::Modules()->getActiveModules();' \
-        'try { $amodules = FreePBX::Modules()->getActiveModules(); } catch(\Exception $e) { $amodules = array(); }'
-    substituteInPlace amp_conf/bin/fwconsole \
-      --replace-warn \
-        '$brand = \FreePBX::Config()->get('"'"'DASHBOARD_FREEPBX_BRAND'"'"');' \
-        'try { $brand = \FreePBX::Config()->get('"'"'DASHBOARD_FREEPBX_BRAND'"'"'); } catch(\Exception $e) { $brand = '"'"'FreePBX'"'"'; }'
-    # Register job command as a default (normally provided by framework module
-    # module.xml which is not installed in a fresh DB).
-    substituteInPlace amp_conf/bin/fwconsole \
-      --replace-warn \
-        "'chown' => function () { return new \\FreePBX\\Console\\Command\\Chown; }" \
-        "'chown' => function () { return new \\FreePBX\\Console\\Command\\Chown; },
-        'job' => function () { return new \\FreePBX\\Console\\Command\\Job; },
-        'reload' => function () { return new \\FreePBX\\Console\\Command\\Reload; },
-        'restart' => function () { return new \\FreePBX\\Console\\Command\\Restart; },
-        'start' => function () { return new \\FreePBX\\Console\\Command\\Start; },
-        'stop' => function () { return new \\FreePBX\\Console\\Command\\Stop; }"
+        # fwconsole:75 needs Modulelist and Modules. Wrap in try-catch since they
+        # may not be registered in a fresh DB.
+        substituteInPlace amp_conf/bin/fwconsole \
+          --replace-warn \
+            '$list = FreePBX::Modulelist()->get();' \
+            'try { $list = FreePBX::Modulelist()->get(); } catch(\Exception $e) { $list = array(); }'
+        substituteInPlace amp_conf/bin/fwconsole \
+          --replace-warn \
+            '$amodules = FreePBX::Modules()->getActiveModules();' \
+            'try { $amodules = FreePBX::Modules()->getActiveModules(); } catch(\Exception $e) { $amodules = array(); }'
+        substituteInPlace amp_conf/bin/fwconsole \
+          --replace-warn \
+            '$brand = \FreePBX::Config()->get('"'"'DASHBOARD_FREEPBX_BRAND'"'"');' \
+            'try { $brand = \FreePBX::Config()->get('"'"'DASHBOARD_FREEPBX_BRAND'"'"'); } catch(\Exception $e) { $brand = '"'"'FreePBX'"'"'; }'
+        # Register job command as a default (normally provided by framework module
+        # module.xml which is not installed in a fresh DB).
+        substituteInPlace amp_conf/bin/fwconsole \
+          --replace-warn \
+            "'chown' => function () { return new \\FreePBX\\Console\\Command\\Chown; }" \
+            "'chown' => function () { return new \\FreePBX\\Console\\Command\\Chown; },
+            'job' => function () { return new \\FreePBX\\Console\\Command\\Job; },
+            'reload' => function () { return new \\FreePBX\\Console\\Command\\Reload; },
+            'restart' => function () { return new \\FreePBX\\Console\\Command\\Restart; },
+            'start' => function () { return new \\FreePBX\\Console\\Command\\Start; },
+            'stop' => function () { return new \\FreePBX\\Console\\Command\\Stop; }"
 
-    # GPG.class.php only checks hardcoded paths — add a PATH fallback for NixOS.
-    substituteInPlace amp_conf/htdocs/admin/libraries/BMO/GPG.class.php \
-      --replace-warn \
-        "if (!\$this->gpg) {" \
-        "\$which = trim(shell_exec('command -v gpg 2>/dev/null') ?: '''); if (\$which) { \$this->gpg = \$which; } if (!\$this->gpg) {"
+        # GPG.class.php only checks hardcoded paths — add a PATH fallback for NixOS.
+        substituteInPlace amp_conf/htdocs/admin/libraries/BMO/GPG.class.php \
+          --replace-warn \
+            "if (!\$this->gpg) {" \
+            "\$which = trim(shell_exec('command -v gpg 2>/dev/null') ?: '''); if (\$which) { \$this->gpg = \$which; } if (!\$this->gpg) {"
 
-    # fwconsole does not load the Composer autoloader by itself in FreePBX 17.
-    # bootstrap.php loads it, but fwconsole includes freepbx.conf directly
-    # instead of going through bootstrap.php. Inject a placeholder that we
-    # fill with the store path during installPhase.
-    sed -i '3a require_once "__FREEPBX_AUTOLOADER__";' amp_conf/bin/fwconsole
-    # Also make the config file path use FREEPBX_CONF env var so the NixOS
-    # module can control the location.
-    substituteInPlace amp_conf/bin/fwconsole \
-      --replace-warn \
-        "include_once '/etc/freepbx.conf';" \
-        "include_once getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf';"
+        # fwconsole does not load the Composer autoloader by itself in FreePBX 17.
+        # bootstrap.php loads it, but fwconsole includes freepbx.conf directly
+        # instead of going through bootstrap.php. Inject a placeholder that we
+        # fill with the store path during installPhase.
+        sed -i '3a require_once "__FREEPBX_AUTOLOADER__";' amp_conf/bin/fwconsole
+        # Also make the config file path use FREEPBX_CONF env var so the NixOS
+        # module can control the location.
+        substituteInPlace amp_conf/bin/fwconsole \
+          --replace-warn \
+            "include_once '/etc/freepbx.conf';" \
+            "include_once getenv('FREEPBX_CONF') ?: '/etc/freepbx.conf';"
 
-    runHook postConfigure
+        runHook postConfigure
   '';
 
   installPhase = ''
