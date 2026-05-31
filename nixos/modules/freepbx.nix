@@ -246,6 +246,7 @@ in
           before = [ "httpd.service" "phpfpm-freepbx.service" ];
           after = [ "mysql.service" "network.target" ];
           requires = [ "mysql.service" ];
+          path = [ config.services.mysql.package pkgs.gnupg ];
           serviceConfig = {
             Type = "oneshot";
             RemainAfterExit = true;
@@ -279,6 +280,8 @@ in
             \$amp_conf['AMPUSER']    = '${cfg.user}';
             \$amp_conf['AMPGROUP']   = '${cfg.group}';
             ${cfg.extraConfig}
+            \$bootstrap_settings['skip_astman'] = true;
+            require_once '${cfg.webRoot}/admin/bootstrap.php';
             PHPEOF
             chmod 640 /etc/freepbx.conf
             chown root:${cfg.group} /etc/freepbx.conf
@@ -296,21 +299,120 @@ in
             # Spool and log dirs
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.spoolDir}
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.spoolDir}/voicemail
+            install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.spoolDir}/cache
             install -d -o ${cfg.user} -g ${cfg.group} -m 0750 ${cfg.logDir}
+
+            # Deploy Asterisk var skeleton (docs, scripts, keys, etc.) to
+            # /var/lib/asterisk. The runtime-vardirs.patch in nixpkgs makes
+            # Asterisk look here at runtime instead of the Nix store path.
+            if [ ! -d /var/lib/asterisk/documentation ]; then
+              mkdir -p /var/lib/asterisk
+              cp -rT ${cfg.asteriskPackage}/var/lib/asterisk /var/lib/asterisk
+              chown -R ${cfg.user}:${cfg.group} /var/lib/asterisk
+            fi
 
             # Set up DB user with password auth (ensureUsers uses unix_socket
             # on MariaDB, which FreePBX cannot use over TCP).
             if [ -n "$DB_PASS" ]; then
-              mysql -u root <<-SQL
+              mysql -u root -e "
                 CREATE USER IF NOT EXISTS '${cfg.database.user}'@'localhost';
                 ALTER USER '${cfg.database.user}'@'localhost' IDENTIFIED BY '$DB_PASS';
                 GRANT ALL PRIVILEGES ON \`${cfg.database.name}\`.* TO '${cfg.database.user}'@'localhost';
                 FLUSH PRIVILEGES;
-              SQL
+              "
             fi
 
-            # Install core + framework modules (creates DB schema).
-            # Idempotent — skips if already installed.
+            # Bootstrap FreePBX schema. Core tables must exist before any
+            # fwconsole command runs (Config reads freepbx_settings,
+            # module_functions queries modules).
+            mysql -u root "${cfg.database.name}" -e "
+              CREATE TABLE IF NOT EXISTS \`freepbx_settings\` (
+                \`keyword\` varchar(50) default NULL,
+                \`value\` varchar(255) default NULL,
+                \`name\` varchar(80) default NULL,
+                \`level\` tinyint(1) default 0,
+                \`description\` text default NULL,
+                \`type\` varchar(25) default NULL,
+                \`options\` text default NULL,
+                \`defaultval\` varchar(255) default NULL,
+                \`readonly\` tinyint(1) default 0,
+                \`hidden\` tinyint(1) default 0,
+                \`category\` varchar(50) default NULL,
+                \`module\` varchar(25) default NULL,
+                \`emptyok\` tinyint(1) default 1,
+                \`sortorder\` int(11) default 0,
+                PRIMARY KEY (\`keyword\`)
+              ) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+              CREATE TABLE IF NOT EXISTS \`modules\` (
+                \`id\` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                \`modulename\` VARCHAR(50) NOT NULL,
+                \`version\` VARCHAR(20) NOT NULL,
+                \`enabled\` TINYINT NOT NULL
+              ) ENGINE=MyISAM;
+              CREATE TABLE IF NOT EXISTS \`featurecodes\` (
+                \`modulename\` varchar(50) NOT NULL,
+                \`featurename\` varchar(50) NOT NULL,
+                \`description\` varchar(200) NOT NULL,
+                \`defaultcode\` varchar(20) default NULL,
+                \`customcode\` varchar(20) default NULL,
+                \`enabled\` tinyint(4) NOT NULL default '0',
+                PRIMARY KEY (\`modulename\`,\`featurename\`),
+                KEY \`enabled\` (\`enabled\`)
+              ) ENGINE=MyISAM;
+              CREATE TABLE IF NOT EXISTS \`notifications\` (
+                \`module\` varchar(24) NOT NULL default ''',
+                \`id\` varchar(24) NOT NULL default ''',
+                \`level\` int(11) NOT NULL default '0',
+                \`display_text\` varchar(255) NOT NULL default ''',
+                \`extended_text\` blob NOT NULL,
+                \`link\` varchar(255) NOT NULL default ''',
+                \`reset\` tinyint(4) NOT NULL default '0',
+                \`candelete\` tinyint(4) NOT NULL default '0',
+                \`timestamp\` int(11) NOT NULL default '0',
+                PRIMARY KEY (\`module\`,\`id\`)
+              ) ENGINE=MyISAM;
+              CREATE TABLE IF NOT EXISTS \`cronmanager\` (
+                \`module\` varchar(24) NOT NULL default ''',
+                \`id\` varchar(24) NOT NULL default ''',
+                \`time\` varchar(5) default NULL,
+                \`freq\` int(11) NOT NULL default '0',
+                \`lasttime\` int(11) NOT NULL default '0',
+                \`command\` varchar(255) NOT NULL default ''',
+                PRIMARY KEY (\`module\`,\`id\`)
+              ) ENGINE=MyISAM;
+              CREATE TABLE IF NOT EXISTS \`module_xml\` (
+                \`id\` varchar(20) NOT NULL default 'xml',
+                \`time\` int(11) NOT NULL default '0',
+                \`data\` blob NOT NULL,
+                PRIMARY KEY (\`id\`)
+              ) ENGINE=MyISAM;
+              CREATE TABLE IF NOT EXISTS \`admin\` (
+                \`variable\` varchar(100) NOT NULL default ''',
+                \`value\` varchar(255) NOT NULL default ''',
+                PRIMARY KEY (\`variable\`)
+              ) ENGINE=MyISAM;
+              INSERT IGNORE INTO \`admin\` (\`variable\`, \`value\`) VALUES ('version', '${cfg.package.version}')
+            "
+            # Seed essential config that bootstrap/php-asmanager.php needs.
+            # These are normally set by the installer or amportal.conf, but
+            # bootstrap's parse_amportal_conf() filters $amp_conf to only DB
+            # keys, so ASTETCDIR/ASTSPOOLDIR must survive in freepbx_settings.
+            mysql -u root "${cfg.database.name}" -e "
+              INSERT IGNORE INTO \`freepbx_settings\` (\`keyword\`, \`value\`, \`name\`, \`level\`, \`type\`, \`defaultval\`, \`readonly\`, \`hidden\`, \`category\`, \`module\`, \`emptyok\`, \`sortorder\`)
+              VALUES
+                ('ASTETCDIR', '/etc/asterisk', 'Asterisk Config Dir', 0, 'dir', '/etc/asterisk', 1, 0, 'Asterisk Settings', 'framework', 0, 0),
+                ('ASTSPOOLDIR', '${cfg.spoolDir}', 'Asterisk Spool Dir', 0, 'dir', '${cfg.spoolDir}', 1, 0, 'Asterisk Settings', 'framework', 0, 0),
+                ('AMPWEBROOT', '${cfg.webRoot}', 'Asterisk Web Root', 0, 'dir', '${cfg.webRoot}', 1, 0, 'Asterisk Settings', 'framework', 0, 0)
+            "
+
+            # GPG.class.php only checks /usr/local/bin/ and /usr/bin/ for gpg
+            # (not PATH), so symlink it there for module signature verification.
+            mkdir -p /usr/local/bin
+            ln -sf ${pkgs.gnupg}/bin/gpg /usr/local/bin/gpg
+
+            # Install core + framework modules (creates remaining schema).
+            # The module installers handle module-specific tables (trunks,
+            # devices, users, etc.) and populate freepbx_settings defaults.
             ${lib.getExe cfg.package} ma install core --quiet || true
             ${lib.getExe cfg.package} ma install framework --quiet || true
 
@@ -362,10 +464,9 @@ in
           after = [ "network.target" "freepbx-init.service" ];
           requires = [ "freepbx-init.service" ];
           serviceConfig = {
-            Type = "forking";
+            Type = "simple";
             User = cfg.user;
             Group = cfg.group;
-            PIDFile = "/run/asterisk/asterisk.pid";
             RuntimeDirectory = "asterisk";
             StateDirectory = "asterisk";
             ExecStart = "${lib.getExe cfg.asteriskPackage} -f -U ${cfg.user} -G ${cfg.group}";
