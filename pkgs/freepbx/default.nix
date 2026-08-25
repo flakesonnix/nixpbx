@@ -23,7 +23,7 @@ stdenv.mkDerivation rec {
     owner = "FreePBX";
     repo = "framework";
     rev = "release/17.0";
-    hash = "sha256-wkD2hr2JV4tDTI1vhzOjUoBofsAO+H+BinoDuIFrWnc=";
+    hash = "sha256-d6oTM8D8ceOqMNkanJytBKrpMwYRryJaHDZCi0hRH8Y=";
   };
 
   nativeBuildInputs = [
