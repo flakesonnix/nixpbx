@@ -178,7 +178,10 @@ stdenv.mkDerivation rec {
 
   passthru = {
     inherit freepbxModules;
-    updateScript = [ "nix-update" pname ];
+    # nixpkgs updateScript convention: runnable via
+    # maintainers/scripts/update.nix-style runners, or directly:
+    #   nix run .#update
+    updateScript = [ ./update.sh ];
   };
 
   meta = with lib; {

@@ -11,11 +11,30 @@
       (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          freepbx-update = pkgs.writeShellApplication {
+            name = "freepbx-update";
+            runtimeInputs = [ pkgs.jq ];
+            text = builtins.replaceStrings
+              [ "#!/usr/bin/env bash\n" ]
+              [ "" ]
+              (builtins.readFile ./pkgs/freepbx/update.sh);
+          };
         in
         {
           packages = {
             freepbx = pkgs.callPackage ./pkgs/freepbx { };
+            inherit freepbx-update;
             default = self.packages.${system}.freepbx;
+          };
+
+          apps.update = {
+            type = "app";
+            program = "${freepbx-update}/bin/freepbx-update";
+            meta = with pkgs.lib; {
+              description = "Refresh pinned FreePBX framework and module source hashes";
+              license = licenses.mit;
+              mainProgram = "freepbx-update";
+            };
           };
 
           checks = {
@@ -25,6 +44,16 @@
             upgrade = import ./tests/upgrade.nix { inherit pkgs; };
             database = import ./tests/database.nix { inherit pkgs; };
             module-options = import ./tests/module-options.nix { inherit pkgs; };
+            update-script = pkgs.runCommand "freepbx-update-script-check"
+              {
+                nativeBuildInputs = [ pkgs.shellcheck ];
+                src = ./pkgs/freepbx/update.sh;
+              }
+              ''
+                shellcheck "$src"
+                bash -n "$src"
+                touch $out
+              '';
           };
 
           devShells.default = pkgs.mkShell {
@@ -33,11 +62,13 @@
               nixpkgs-fmt
               statix
               deadnix
+              freepbx-update
             ];
             shellHook = ''
               echo "FreePBX Nix dev shell"
               echo "  nix build .#freepbx       — build the package"
               echo "  nix flake check           — run lints + VM test"
+              echo "  freepbx-update            — refresh source/module hashes"
               echo "  nixpkgs-fmt **/*.nix      — format Nix files"
               echo "  statix check .            — static analysis"
               echo "  deadnix --edit **/*.nix   — remove dead code"

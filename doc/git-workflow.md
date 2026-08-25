@@ -84,7 +84,18 @@ chore: run nixpkgs-fmt over all Nix files
 
 ## Hash update workflow
 
-When upstream tags a new release or module:
+Refresh all pinned hashes (framework source + every module) with the updater:
+
+```bash
+# In devShell, or: nix run .#update
+freepbx-update            # apply hash updates to the working tree
+freepbx-update --commit   # apply and commit (one commit per file)
+```
+
+The script tracks the upstream `release/<branch>` branches; set
+`NIXPBX_FREEPBX_BRANCH` to follow a different branch.
+
+Manual fallbacks:
 
 ```bash
 # Get the new hash for a single source
